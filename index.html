@@ -86,23 +86,106 @@
     const trebleRef = useRef(null);
     const sourceRef = useRef(null);
 
+    // Add these state variables
+    const [folderHandle, setFolderHandle] = useState(null);
+    const [isLoadingFolder, setIsLoadingFolder] = useState(false);
+
+    // Update the useEffect to check for saved folder
     useEffect(() => {
       loadFromStorage();
       initAudioContext();
+      restoreFolderAccess();
     }, []);
-
+      
+    // Add this function to restore folder access on load
+    const restoreFolderAccess = async () => {
+      const folderName = localStorage.getItem('musicFolderName');
+      if (folderName && 'showDirectoryPicker' in window) {
+        // Check if we have permission
+        try {
+          const handles = await window.indexedDB.databases();
+          // Try to get the folder handle from IndexedDB
+          const savedHandle = await getSavedFolderHandle();
+          if (savedHandle) {
+            const permission = await savedHandle.queryPermission({ mode: 'read' });
+            if (permission === 'granted') {
+              setFolderHandle(savedHandle);
+              await loadTracksFromFolder(savedHandle);
+            }
+          }
+        } catch (error) {
+          console.log('Could not restore folder access:', error);
+        }
+      }
+    };
+    
+    // Save folder handle to IndexedDB
+    const saveFolderHandle = async (handle) => {
+      const db = await openDB();
+      const tx = db.transaction('folders', 'readwrite');
+      await tx.objectStore('folders').put(handle, 'musicFolder');
+      await tx.done;
+      localStorage.setItem('musicFolderName', handle.name);
+    };
+    
+    // Get folder handle from IndexedDB
+    const getSavedFolderHandle = async () => {
+      try {
+        const db = await openDB();
+        const tx = db.transaction('folders', 'readonly');
+        const handle = await tx.objectStore('folders').get('musicFolder');
+        return handle;
+      } catch (error) {
+        return null;
+      }
+    };
+    
+    // Open IndexedDB
+    const openDB = () => {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('HarmonicaDB', 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+          if (!db.objectStoreNames.contains('folders')) {
+            db.createObjectStore('folders');
+          }
+        };
+      });
+    };
+    
+    // Update selectMusicFolder to save the handle
+    const selectMusicFolder = async () => {
+      try {
+        setIsLoadingFolder(true);
+        const dirHandle = await window.showDirectoryPicker();
+        setFolderHandle(dirHandle);
+        await saveFolderHandle(dirHandle);
+        await loadTracksFromFolder(dirHandle);
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          console.error('Error selecting folder:', error);
+          alert('Error selecting folder. Make sure your browser supports this feature.');
+        }
+      } finally {
+        setIsLoadingFolder(false);
+      }
+    };
+        
+    // Replace loadFromStorage with this:
     const loadFromStorage = async () => {
       try {
-        const tracksData = await window.storage.get('tracks');
-        const favoritesData = await window.storage.get('favorites');
-        const playlistsData = await window.storage.get('playlists');
-        const settingsData = await window.storage.get('settings');
+        const tracksData = localStorage.getItem('tracks');
+        const favoritesData = localStorage.getItem('favorites');
+        const playlistsData = localStorage.getItem('playlists');
+        const settingsData = localStorage.getItem('settings');
         
-        if (tracksData) setTracks(JSON.parse(tracksData.value));
-        if (favoritesData) setFavorites(JSON.parse(favoritesData.value));
-        if (playlistsData) setPlaylists(JSON.parse(playlistsData.value));
+        if (tracksData) setTracks(JSON.parse(tracksData));
+        if (favoritesData) setFavorites(JSON.parse(favoritesData));
+        if (playlistsData) setPlaylists(JSON.parse(playlistsData));
         if (settingsData) {
-          const settings = JSON.parse(settingsData.value);
+          const settings = JSON.parse(settingsData);
           setVolume(settings.volume || 1);
           setEqSettings(settings.eq || { bass: 0, mid: 0, treble: 0 });
         }
@@ -110,13 +193,51 @@
         console.log('No saved data found, starting fresh');
       }
     };
-
-    const saveToStorage = async (key, data) => {
+    
+    // Replace saveToStorage with this:
+    const saveToStorage = (key, data) => {
       try {
-        await window.storage.set(key, JSON.stringify(data));
+        localStorage.setItem(key, JSON.stringify(data));
       } catch (error) {
         console.error('Storage error:', error);
       }
+    };
+    
+    // Add this function to load music from the folder:
+    const loadTracksFromFolder = async (dirHandle) => {
+      const newTracks = [];
+      const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac'];
+      
+      for await (const entry of dirHandle.values()) {
+        if (entry.kind === 'file') {
+          const ext = entry.name.substring(entry.name.lastIndexOf('.')).toLowerCase();
+          if (audioExtensions.includes(ext)) {
+            const file = await entry.getFile();
+            const reader = new FileReader();
+            
+            const trackData = await new Promise((resolve) => {
+              reader.onload = (e) => {
+                const track = {
+                  id: Date.now() + Math.random(),
+                  name: entry.name.replace(/\.[^/.]+$/, ''),
+                  artist: 'Unknown Artist',
+                  album: 'Unknown Album',
+                  duration: 0,
+                  file: e.target.result,
+                  addedDate: new Date().toISOString()
+                };
+                resolve(track);
+              };
+              reader.readAsDataURL(file);
+            });
+            
+            newTracks.push(trackData);
+          }
+        }
+      }
+      
+      setTracks(newTracks);
+      saveToStorage('tracks', newTracks);
     };
 
     const initAudioContext = () => {
@@ -376,13 +497,14 @@
               </div>
               
               <button
-                onClick={() => setShowUpload(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition"
+                onClick={selectMusicFolder}
+                disabled={isLoadingFolder}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition disabled:opacity-50"
               >
                 <div className="w-5 h-5">
                   <Upload />
                 </div>
-                Upload
+                {isLoadingFolder ? 'Loading...' : 'Select Folder'}
               </button>
               
               <button onClick={() => setView(view === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-white/10 rounded-lg">
