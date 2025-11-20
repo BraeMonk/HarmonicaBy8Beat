@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Harmonic - Music Player</title>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="theme-color" content="#7c3aed">
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Mock storage API for GitHub Pages (uses localStorage)
+    window.storage = {
+      get: async (key) => {
+        const value = localStorage.getItem(key);
+        return value ? { key, value, shared: false } : null;
+      },
+      set: async (key, value) => {
+        localStorage.setItem(key, value);
+        return { key, value, shared: false };
+      },
+      delete: async (key) => {
+        localStorage.removeItem(key);
+        return { key, deleted: true, shared: false };
+      },
+      list: async (prefix) => {
+        const keys = Object.keys(localStorage).filter(k => !prefix || k.startsWith(prefix));
+        return { keys, prefix, shared: false };
+      }
+    };
+
+    // Lucide Icons as inline SVG components
+    const Play = () => <svg className="w-full h-full" fill="currentColor" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>;
+    const Pause = () => <svg className="w-full h-full" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>;
+    const SkipForward = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 4l10 8-10 8V4zM19 5v14"/></svg>;
+    const SkipBack = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M19 20L9 12l10-8v16zM5 19V5"/></svg>;
+    const Volume2 = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>;
+    const VolumeX = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>;
+    const Upload = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>;
+    const List = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>;
+    const Grid = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>;
+    const Music = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM21 16a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
+    const Shuffle = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>;
+    const Repeat = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 014-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 01-4 4H3"/></svg>;
+    const Heart = ({ className }) => <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>;
+    const Search = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>;
+    const Settings = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m7.07 7.07l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m7.07-7.07l4.24-4.24"/></svg>;
+    const X = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>;
+    const Disc = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>;
+    const Plus = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>;
+    const Trash2 = () => <svg className="w-full h-full" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>;
+
+    const AudioPlayer = () => {
+    const [tracks, setTracks] = useState([]);
+    const [currentTrack, setCurrentTrack] = useState(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [volume, setVolume] = useState(1);
+    const [isMuted, setIsMuted] = useState(false);
+    const [shuffle, setShuffle] = useState(false);
+    const [repeat, setRepeat] = useState('off');
+    const [view, setView] = useState('grid');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedPlaylist, setSelectedPlaylist] = useState('all');
+    const [playlists, setPlaylists] = useState([]);
+    const [showUpload, setShowUpload] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [favorites, setFavorites] = useState([]);
+    const [queue, setQueue] = useState([]);
+    const [eqSettings, setEqSettings] = useState({ bass: 0, mid: 0, treble: 0 });
+    
+    const audioRef = useRef(null);
+    const audioContextRef = useRef(null);
+    const analyserRef = useRef(null);
+    const gainNodeRef = useRef(null);
+    const bassRef = useRef(null);
+    const midRef = useRef(null);
+    const trebleRef = useRef(null);
+    const sourceRef = useRef(null);
+
+    useEffect(() => {
+      loadFromStorage();
+      initAudioContext();
+    }, []);
+
+    const loadFromStorage = async () => {
+      try {
+        const tracksData = await window.storage.get('tracks');
+        const favoritesData = await window.storage.get('favorites');
+        const playlistsData = await window.storage.get('playlists');
+        const settingsData = await window.storage.get('settings');
+        
+        if (tracksData) setTracks(JSON.parse(tracksData.value));
+        if (favoritesData) setFavorites(JSON.parse(favoritesData.value));
+        if (playlistsData) setPlaylists(JSON.parse(playlistsData.value));
+        if (settingsData) {
+          const settings = JSON.parse(settingsData.value);
+          setVolume(settings.volume || 1);
+          setEqSettings(settings.eq || { bass: 0, mid: 0, treble: 0 });
+        }
+      } catch (error) {
+        console.log('No saved data found, starting fresh');
+      }
+    };
+
+    const saveToStorage = async (key, data) => {
+      try {
+        await window.storage.set(key, JSON.stringify(data));
+      } catch (error) {
+        console.error('Storage error:', error);
+      }
+    };
+
+    const initAudioContext = () => {
+      if (!audioContextRef.current) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioContextRef.current = new AudioContext();
+        analyserRef.current = audioContextRef.current.createAnalyser();
+        gainNodeRef.current = audioContextRef.current.createGain();
+        
+        bassRef.current = audioContextRef.current.createBiquadFilter();
+        bassRef.current.type = 'lowshelf';
+        bassRef.current.frequency.value = 200;
+        
+        midRef.current = audioContextRef.current.createBiquadFilter();
+        midRef.current.type = 'peaking';
+        midRef.current.frequency.value = 1000;
+        midRef.current.Q.value = 1;
+        
+        trebleRef.current = audioContextRef.current.createBiquadFilter();
+        trebleRef.current.type = 'highshelf';
+        trebleRef.current.frequency.value = 3000;
+      }
+    };
+
+    const handleFileUpload = async (e) => {
+      const files = Array.from(e.target.files);
+      const newTracks = [];
+
+      for (const file of files) {
+        if (file.type.startsWith('audio/')) {
+          const reader = new FileReader();
+          const trackData = await new Promise((resolve) => {
+            reader.onload = (e) => {
+              const track = {
+                id: Date.now() + Math.random(),
+                name: file.name.replace(/\.[^/.]+$/, ''),
+                artist: 'Unknown Artist',
+                album: 'Unknown Album',
+                duration: 0,
+                file: e.target.result,
+                addedDate: new Date().toISOString()
+              };
+              resolve(track);
+            };
+            reader.readAsDataURL(file);
+          });
+          newTracks.push(trackData);
+        }
+      }
+
+      const updatedTracks = [...tracks, ...newTracks];
+      setTracks(updatedTracks);
+      saveToStorage('tracks', updatedTracks);
+      setShowUpload(false);
+    };
+
+    const connectAudioNodes = () => {
+      if (audioRef.current && audioContextRef.current && !sourceRef.current) {
+        try {
+          sourceRef.current = audioContextRef.current.createMediaElementSource(audioRef.current);
+          sourceRef.current.connect(bassRef.current);
+          bassRef.current.connect(midRef.current);
+          midRef.current.connect(trebleRef.current);
+          trebleRef.current.connect(gainNodeRef.current);
+          gainNodeRef.current.connect(analyserRef.current);
+          analyserRef.current.connect(audioContextRef.current.destination);
+        } catch (error) {
+          console.log('Audio nodes already connected');
+        }
+      }
+    };
+
+    const playTrack = (track) => {
+      if (currentTrack?.id !== track.id) {
+        setCurrentTrack(track);
+        setIsPlaying(true);
+        if (audioRef.current) {
+          audioRef.current.src = track.file;
+          audioRef.current.load();
+        }
+      } else {
+        togglePlay();
+      }
+    };
+
+    const togglePlay = () => {
+      if (audioRef.current) {
+        if (isPlaying) {
+          audioRef.current.pause();
+        } else {
+          audioContextRef.current.resume();
+          audioRef.current.play();
+        }
+        setIsPlaying(!isPlaying);
+      }
+    };
+
+    const handleNext = () => {
+      if (queue.length > 0) {
+        const nextTrack = queue[0];
+        setQueue(queue.slice(1));
+        playTrack(nextTrack);
+      } else if (tracks.length > 0) {
+        const currentIndex = tracks.findIndex(t => t.id === currentTrack?.id);
+        let nextIndex;
+        
+        if (shuffle) {
+          nextIndex = Math.floor(Math.random() * tracks.length);
+        } else {
+          nextIndex = (currentIndex + 1) % tracks.length;
+        }
+        
+        playTrack(tracks[nextIndex]);
+      }
+    };
+
+    const handlePrevious = () => {
+      if (currentTime > 3) {
+        audioRef.current.currentTime = 0;
+      } else if (tracks.length > 0) {
+        const currentIndex = tracks.findIndex(t => t.id === currentTrack?.id);
+        const prevIndex = currentIndex > 0 ? currentIndex - 1 : tracks.length - 1;
+        playTrack(tracks[prevIndex]);
+      }
+    };
+
+    const handleTimeUpdate = () => {
+      if (audioRef.current) {
+        setCurrentTime(audioRef.current.currentTime);
+        setDuration(audioRef.current.duration);
+      }
+    };
+
+    const handleSeek = (e) => {
+      const seekTime = (e.target.value / 100) * duration;
+      audioRef.current.currentTime = seekTime;
+      setCurrentTime(seekTime);
+    };
+
+    const handleVolumeChange = (e) => {
+      const newVolume = parseFloat(e.target.value);
+      setVolume(newVolume);
+      if (audioRef.current) {
+        audioRef.current.volume = newVolume;
+      }
+      if (gainNodeRef.current) {
+        gainNodeRef.current.gain.value = newVolume;
+      }
+      saveToStorage('settings', { volume: newVolume, eq: eqSettings });
+    };
+
+    const handleEqChange = (band, value) => {
+      const newEq = { ...eqSettings, [band]: value };
+      setEqSettings(newEq);
+      
+      if (band === 'bass' && bassRef.current) {
+        bassRef.current.gain.value = value;
+      } else if (band === 'mid' && midRef.current) {
+        midRef.current.gain.value = value;
+      } else if (band === 'treble' && trebleRef.current) {
+        trebleRef.current.gain.value = value;
+      }
+      
+      saveToStorage('settings', { volume, eq: newEq });
+    };
+
+    const toggleFavorite = (trackId) => {
+      const newFavorites = favorites.includes(trackId)
+        ? favorites.filter(id => id !== trackId)
+        : [...favorites, trackId];
+      setFavorites(newFavorites);
+      saveToStorage('favorites', newFavorites);
+    };
+
+    const deleteTrack = (trackId) => {
+      const updatedTracks = tracks.filter(t => t.id !== trackId);
+      setTracks(updatedTracks);
+      saveToStorage('tracks', updatedTracks);
+      if (currentTrack?.id === trackId) {
+        setCurrentTrack(null);
+        setIsPlaying(false);
+      }
+    };
+
+    const addToQueue = (track) => {
+      setQueue([...queue, track]);
+    };
+
+    const createPlaylist = () => {
+      const name = prompt('Enter playlist name:');
+      if (name) {
+        const newPlaylist = { id: Date.now(), name, tracks: [] };
+        const updatedPlaylists = [...playlists, newPlaylist];
+        setPlaylists(updatedPlaylists);
+        saveToStorage('playlists', updatedPlaylists);
+      }
+    };
+
+    const formatTime = (time) => {
+      if (isNaN(time)) return '0:00';
+      const minutes = Math.floor(time / 60);
+      const seconds = Math.floor(time % 60);
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    };
+
+    const filteredTracks = tracks.filter(track => {
+      const matchesSearch = track.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          track.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          track.album.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesPlaylist = selectedPlaylist === 'all' || 
+                            (selectedPlaylist === 'favorites' && favorites.includes(track.id));
+      
+      return matchesSearch && matchesPlaylist;
+    });
+
+    useEffect(() => {
+      if (audioRef.current) {
+        connectAudioNodes();
+      }
+    }, []);
+
+    const handleEnded = () => {
+      if (repeat === 'one') {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play();
+      } else if (repeat === 'all' || queue.length > 0) {
+        handleNext();
+      } else {
+        setIsPlaying(false);
+      }
+    };
+
+    return (
+      <div className="h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white flex flex-col">
+        <div className="bg-black/30 backdrop-blur-md border-b border-white/10 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-6 h-6">
+                <Disc />
+              </div>
+              <h1 className="text-2xl font-bold">Harmonic</h1>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400">
+                  <Search />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search music..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 pr-4 py-2 bg-white/10 rounded-lg border border-white/20 focus:outline-none focus:border-purple-400 w-64"
+                />
+              </div>
+              
+              <button
+                onClick={() => setShowUpload(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition"
+              >
+                <div className="w-5 h-5">
+                  <Upload />
+                </div>
+                Upload
+              </button>
+              
+              <button onClick={() => setView(view === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-white/10 rounded-lg">
+                <div className="w-5 h-5">
+                  {view === 'grid' ? <List /> : <Grid />}
+                </div>
+              </button>
+              
+              <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-white/10 rounded-lg">
+                <div className="w-5 h-5">
+                  <Settings />
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 flex overflow-hidden">
+          <div className="w-64 bg-black/20 backdrop-blur-sm border-r border-white/10 p-4 overflow-y-auto">
+            <div className="space-y-2">
+              <button
+                onClick={() => setSelectedPlaylist('all')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${
+                  selectedPlaylist === 'all' ? 'bg-purple-600' : 'hover:bg-white/10'
+                }`}
+              >
+                <div className="w-5 h-5">
+                  <Music />
+                </div>
+                All Music ({tracks.length})
+              </button>
+              
+              <button
+                onClick={() => setSelectedPlaylist('favorites')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${
+                  selectedPlaylist === 'favorites' ? 'bg-purple-600' : 'hover:bg-white/10'
+                }`}
+              >
+                <Heart className="w-5 h-5" />
+                Favorites ({favorites.length})
+              </button>
+            </div>
+            
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-400 uppercase">Playlists</h3>
+                <button onClick={createPlaylist} className="p-1 hover:bg-white/10 rounded">
+                  <div className="w-5 h-5">
+                    <Plus />
+                  </div>
+                </button>
+              </div>
+              <div className="space-y-1">
+                {playlists.map(playlist => (
+                  <button
+                    key={playlist.id}
+                    onClick={() => setSelectedPlaylist(playlist.id)}
+                    className={`w-full text-left px-4 py-2 rounded-lg transition ${
+                      selectedPlaylist === playlist.id ? 'bg-purple-600' : 'hover:bg-white/10'
+                    }`}
+                  >
+                    {playlist.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {queue.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">Queue ({queue.length})</h3>
+                <div className="space-y-1">
+                  {queue.slice(0, 5).map((track, idx) => (
+                    <div key={idx} className="px-4 py-2 text-sm text-gray-300 truncate">
+                      {track.name}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6">
+            {filteredTracks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                <div className="w-16 h-16 mb-4">
+                  <Music />
+                </div>
+                <p className="text-xl mb-2">No tracks found</p>
+                <p className="text-sm">Upload some music to get started</p>
+              </div>
+            ) : view === 'grid' ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {filteredTracks.map(track => (
+                  <div
+                    key={track.id}
+                    className="group bg-white/5 hover:bg-white/10 rounded-lg p-4 transition cursor-pointer"
+                    onClick={() => playTrack(track)}
+                  >
+                    <div className="aspect-square bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg mb-3 flex items-center justify-center relative">
+                      <div className="w-12 h-12">
+                        <Music />
+                      </div>
+                      {currentTrack?.id === track.id && (
+                        <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                          <div className="w-10 h-10">
+                            {isPlaying ? <Pause /> : <Play />}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <h3 className="font-semibold truncate mb-1">{track.name}</h3>
+                    <p className="text-sm text-gray-400 truncate">{track.artist}</p>
+                    <div className="flex items-center justify-between mt-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(track.id);
+                        }}
+                        className="p-1 hover:bg-white/10 rounded"
+                      >
+                        <Heart
+                          className={`w-4 h-4 ${
+                            favorites.includes(track.id) ? 'fill-red-500 text-red-500' : ''
+                          }`}
+                        />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteTrack(track.id);
+                        }}
+                        className="p-1 hover:bg-red-500/20 rounded opacity-0 group-hover:opacity-100 transition"
+                      >
+                        <div className="w-4 h-4">
+                          <Trash2 />
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {filteredTracks.map(track => (
+                  <div
+                    key={track.id}
+                    className={`group flex items-center gap-4 px-4 py-3 rounded-lg hover:bg-white/10 transition cursor-pointer ${
+                      currentTrack?.id === track.id ? 'bg-white/10' : ''
+                    }`}
+                    onClick={() => playTrack(track)}
+                  >
+                    <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded flex items-center justify-center flex-shrink-0">
+                      <div className="w-6 h-6">
+                        {currentTrack?.id === track.id && isPlaying ? (
+                          <Pause />
+                        ) : (
+                          <Play />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold truncate">{track.name}</h3>
+                      <p className="text-sm text-gray-400 truncate">{track.artist} • {track.album}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          addToQueue(track);
+                        }}
+                        className="p-2 hover:bg-white/10 rounded opacity-0 group-hover:opacity-100 transition"
+                      >
+                        <div className="w-4 h-4">
+                          <Plus />
+                        </div>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(track.id);
+                        }}
+                        className="p-2 hover:bg-white/10 rounded"
+                      >
+                        <Heart
+                          className={`w-4 h-4 ${
+                            favorites.includes(track.id) ? 'fill-red-500 text-red-500' : ''
+                          }`}
+                        />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteTrack(track.id);
+                        }}
+                        className="p-2 hover:bg-red-500/20 rounded opacity-0 group-hover:opacity-100 transition"
+                      >
+                        <div className="w-4 h-4">
+                          <Trash2 />
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {currentTrack && (
+          <div className="bg-black/40 backdrop-blur-md border-t border-white/10 p-4">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 w-64">
+                <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded flex items-center justify-center flex-shrink-0">
+                  <div className="w-8 h-8">
+                    <Music />
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <h4 className="font-semibold truncate">{currentTrack.name}</h4>
+                  <p className="text-sm text-gray-400 truncate">{currentTrack.artist}</p>
+                </div>
+                <button
+                  onClick={() => toggleFavorite(currentTrack.id)}
+                  className="p-2 hover:bg-white/10 rounded"
+                >
+                  <Heart
+                    className={`w-4 h-4 ${
+                      favorites.includes(currentTrack.id) ? 'fill-red-500 text-red-500' : ''}`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex-1 flex flex-col items-center gap-2">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => setShuffle(!shuffle)}
+                    className={`p-2 rounded-lg transition ${shuffle ? 'bg-purple-600' : 'hover:bg-white/10'}`}
+                  >
+                    <div className="w-5 h-5">
+                      <Shuffle />
+                    </div>
+                  </button>
+                  
+                  <button onClick={handlePrevious} className="p-2 hover:bg-white/10 rounded-lg transition">
+                    <div className="w-5 h-5">
+                      <SkipBack />
+                    </div>
+                  </button>
+                  
+                  <button
+                    onClick={togglePlay}
+                    className="p-4 bg-purple-600 hover:bg-purple-700 rounded-full transition"
+                  >
+                    <div className="w-6 h-6">
+                      {isPlaying ? <Pause /> : <Play />}
+                    </div>
+                  </button>
+                  
+                  <button onClick={handleNext} className="p-2 hover:bg-white/10 rounded-lg transition">
+                    <div className="w-5 h-5">
+                      <SkipForward />
+                    </div>
+                  </button>
+                  
+                  <button
+                    onClick={() => setRepeat(repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off')}
+                    className={`p-2 rounded-lg transition relative ${repeat !== 'off' ? 'bg-purple-600' : 'hover:bg-white/10'}`}
+                  >
+                    <div className="w-5 h-5">
+                      <Repeat />
+                    </div>
+                    {repeat === 'one' && <span className="absolute top-0 right-0 text-xs">1</span>}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3 w-full max-w-2xl">
+                  <span className="text-xs text-gray-400 w-12 text-right">{formatTime(currentTime)}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={(currentTime / duration) * 100 || 0}
+                    onChange={handleSeek}
+                    className="flex-1 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500"
+                  />
+                  <span className="text-xs text-gray-400 w-12">{formatTime(duration)}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-64 justify-end">
+                <button
+                  onClick={() => setIsMuted(!isMuted)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition"
+                >
+                  <div className="w-5 h-5">
+                    {isMuted || volume === 0 ? <VolumeX /> : <Volume2 />}
+                  </div>
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={isMuted ? 0 : volume}
+                  onChange={handleVolumeChange}
+                  className="w-24 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showUpload && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 rounded-2xl p-6 max-w-md w-full border border-white/10">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold">Upload Music</h2>
+                <button onClick={() => setShowUpload(false)} className="p-2 hover:bg-white/10 rounded-lg">
+                  <div className="w-5 h-5">
+                    <X />
+                  </div>
+                </button>
+              </div>
+              
+              <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center">
+                <div className="w-12 h-12 mx-auto mb-4 text-purple-400">
+                  <Upload />
+                </div>
+                <p className="mb-4 text-gray-300">Choose audio files to upload</p>
+                <input
+                  type="file"
+                  multiple
+                  accept="audio/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="file-upload"
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="inline-block px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg cursor-pointer transition"
+                >
+                  Select Files
+                </label>
+              </div>
+              
+              <p className="text-sm text-gray-400 mt-4">
+                Supported formats: MP3, WAV, OGG, FLAC, AAC
+              </p>
+            </div>
+          </div>
+        )}
+
+        {showSettings && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 rounded-2xl p-6 max-w-md w-full border border-white/10">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold">Settings</h2>
+                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-white/10 rounded-lg">
+                  <div className="w-5 h-5">
+                    <X />
+                  </div>
+                </button>
+              </div>
+              
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">Equalizer</h3>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="flex items-center justify-between mb-2">
+                        <span className="text-sm">Bass</span>
+                        <span className="text-sm text-gray-400">{eqSettings.bass.toFixed(1)} dB</span>
+                      </label>
+                      <input
+                        type="range"
+                        min="-12"
+                        max="12"
+                        step="0.5"
+                        value={eqSettings.bass}
+                        onChange={(e) => handleEqChange('bass', parseFloat(e.target.value))}
+                        className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="flex items-center justify-between mb-2">
+                        <span className="text-sm">Mid</span>
+                        <span className="text-sm text-gray-400">{eqSettings.mid.toFixed(1)} dB</span>
+                      </label>
+                      <input
+                        type="range"
+                        min="-12"
+                        max="12"
+                        step="0.5"
+                        value={eqSettings.mid}
+                        onChange={(e) => handleEqChange('mid', parseFloat(e.target.value))}
+                        className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="flex items-center justify-between mb-2">
+                        <span className="text-sm">Treble</span>
+                        <span className="text-sm text-gray-400">{eqSettings.treble.toFixed(1)} dB</span>
+                      </label>
+                      <input
+                        type="range"
+                        min="-12"
+                        max="12"
+                        step="0.5"
+                        value={eqSettings.treble}
+                        onChange={(e) => handleEqChange('treble', parseFloat(e.target.value))}
+                        className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500"
+                      />
+                    </div>
+                    
+                    <button
+                      onClick={() => {
+                        handleEqChange('bass', 0);
+                        handleEqChange('mid', 0);
+                        handleEqChange('treble', 0);
+                      }}
+                      className="w-full px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition text-sm"
+                    >
+                      Reset Equalizer
+                    </button>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">Storage</h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                      <span className="text-sm">Total Tracks</span>
+                      <span className="text-sm font-semibold">{tracks.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                      <span className="text-sm">Favorites</span>
+                      <span className="text-sm font-semibold">{favorites.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                      <span className="text-sm">Playlists</span>
+                      <span className="text-sm font-semibold">{playlists.length}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <audio
+          ref={audioRef}
+          onTimeUpdate={handleTimeUpdate}
+          onEnded={handleEnded}
+          onLoadedMetadata={handleTimeUpdate}
+        />
+      </div>
+    );
+  };
+
+    ReactDOM.render(<AudioPlayer />, document.getElementById('root'));
+  </script>
+</body>
+</html>
